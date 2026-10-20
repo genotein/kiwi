@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>주문 관리</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥝</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap wide">
+
+  <!-- 로그인 -->
+  <div id="loginView" class="login" hidden>
+    <div class="card">
+      <div class="brand" style="margin-bottom:18px"><div class="logo">🥝</div><div><h1>주문 관리</h1><p>관리자 비밀번호를 입력해주세요</p></div></div>
+      <form id="loginForm">
+        <label class="field"><span>비밀번호</span><input id="pw" type="password" autocomplete="current-password"></label>
+        <button class="btn-primary block" id="loginBtn" type="submit">들어가기</button>
+      </form>
+      <p class="muted small" id="demoHint" hidden style="margin:12px 0 0">데모 모드에서는 아무 비밀번호나 입력하면 돼요.</p>
+    </div>
+  </div>
+
+  <!-- 관리 화면 -->
+  <div id="mainView" hidden>
+    <div class="admin-top">
+      <h1>🥝 주문 관리</h1>
+      <div class="tools">
+        <a class="btn-line" id="sheetLink" target="_blank" rel="noopener" hidden>구글 시트 열기</a>
+        <button class="btn-line" id="refreshBtn">새로고침</button>
+        <button class="btn-line" id="logoutBtn">로그아웃</button>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="toolbar">
+      <div class="seg" id="viewSeg">
+        <button data-v="orders" class="on">주문</button>
+        <button data-v="reships">재배송 신청</button>
+      </div>
+      <div class="seg" id="filterSeg"></div>
+      <input id="search" placeholder="이름 · 전화번호 · 주소 · 주문번호 검색" type="text">
+    </div>
+
+    <div class="grid" id="list"></div>
+  </div>
+</div>
+
+<script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+showDemoBanner();
+let PW = sessionStorage.getItem('kiwi_admin_pw') || '';
+let DATA = { orders: [], reships: [] };
+let view = 'orders', filter = 'all', query = '';
+
+const FILTERS = {
+  orders: [['all', '전체'], ['unpaid', '미입금'], ['paid', '입금완료']],
+  reships: [['open', '처리 전'], ['all', '전체'], ['done', '완료']],
+};
+
+/* ---------- 로그인 ---------- */
+$('#demoHint').hidden = !DEMO;
+$('#loginForm').addEventListener('submit', e => {
+  e.preventDefault();
+  PW = $('#pw').value;
+  if (!PW) return toast('비밀번호를 입력해주세요', 'error');
+  withBusy($('#loginBtn'), () => load(true));
+});
+$('#logoutBtn').onclick = () => { sessionStorage.removeItem('kiwi_admin_pw'); PW = ''; location.reload(); };
+$('#refreshBtn').onclick = e => withBusy(e.currentTarget, () => load(false).then(() => toast('최신 내용으로 불러왔어요')));
+
+async function load(fromLogin) {
+  try {
+    const r = await api('adminList', { password: PW });
+    DATA = { orders: r.orders || [], reships: r.reships || [] };
+    sessionStorage.setItem('kiwi_admin_pw', PW);
+    if (r.sheetUrl) { $('#sheetLink').href = r.sheetUrl; $('#sheetLink').hidden = false; }
+    $('#loginView').hidden = true;
+    $('#mainView').hidden = false;
+    render();
+  } catch (err) {
+    toast(err.message, 'error');
+    if (!fromLogin) { sessionStorage.removeItem('kiwi_admin_pw'); }
+    $('#loginView').hidden = false; $('#mainView').hidden = true;
+  }
+}
+if (PW) load(false); else $('#loginView').hidden = false;
+
+/* ---------- 화면 그리기 ---------- */
+$('#viewSeg').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  view = b.dataset.v; filter = FILTERS[view][0][0];
+  render();
+};
+$('#filterSeg').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  filter = b.dataset.f; render();
+};
+$('#search').addEventListener('input', e => { query = e.target.value.trim(); renderList(); });
+
+function render() {
+  const o = DATA.orders, r = DATA.reships;
+  const unpaid = o.filter(x => !x.paid);
+  const paidSum = o.filter(x => x.paid).reduce((s, x) => s + Number(x.amount || 0), 0);
+  const openR = r.filter(x => x.status !== '완료').length;
+  $('#stats').innerHTML = `
+    <div class="stat"><small>전체 주문</small><b>${o.length}건</b></div>
+    <div class="stat ${unpaid.length ? 'warn' : ''}"><small>입금 대기</small><b>${unpaid.length}건</b></div>
+    <div class="stat"><small>입금 확인 금액</small><b>${won(paidSum)}</b></div>
+    <div class="stat ${openR ? 'warn' : ''}"><small>재배송 처리 전</small><b>${openR}건</b></div>`;
+  $$('#viewSeg button').forEach(b => {
+    b.classList.toggle('on', b.dataset.v === view);
+    if (b.dataset.v === 'reships') b.textContent = '재배송 신청' + (openR ? ` (${openR})` : '');
+  });
+  $('#filterSeg').innerHTML = FILTERS[view].map(([k, l]) => `<button data-f="${k}" class="${k === filter ? 'on' : ''}">${l}</button>`).join('');
+  renderList();
+}
+
+function matches(obj) {
+  if (!query) return true;
+  const q = query.toLowerCase(), qd = onlyDigits(query);
+  return Object.values(obj).some(v => {
+    const s = String(v ?? '').toLowerCase();
+    return s.includes(q) || (qd.length >= 3 && onlyDigits(s).includes(qd));
+  });
+}
+
+function renderList() {
+  const box = $('#list');
+  if (view === 'orders') {
+    const list = DATA.orders.filter(o =>
+      (filter === 'all' || (filter === 'paid' ? o.paid : !o.paid)) && matches(o));
+    box.innerHTML = list.length ? list.map(orderCard).join('') : `<div class="card empty">해당하는 주문이 없어요</div>`;
+  } else {
+    const list = DATA.reships.filter(x =>
+      (filter === 'all' || (filter === 'done' ? x.status === '완료' : x.status !== '완료')) && matches(x));
+    box.innerHTML = list.length ? list.map(reshipCard).join('') : `<div class="card empty">해당하는 재배송 신청이 없어요</div>`;
+  }
+}
+
+function fullAddr(o) {
+  return `${o.zip ? '(' + o.zip + ') ' : ''}${o.address} ${o.addressDetail || ''}`.trim();
+}
+
+function orderCard(o) {
+  const reshipCount = DATA.reships.filter(x => x.orderId === o.id).length;
+  return `<article class="a-card ${o.paid ? '' : 'unpaid'}" data-id="${esc(o.id)}">
+    <div class="a-head">
+      <div><div class="a-name">${esc(o.name)}</div>
+        <a class="a-phone" href="tel:${onlyDigits(o.phone)}">${esc(o.phone)}</a></div>
+      <button class="paybtn ${o.paid ? 'on' : ''}" data-act="pay">${o.paid ? '✓ 입금완료' : '미입금 · 확인'}</button>
+    </div>
+    <div class="a-line">${esc(fullAddr(o))}</div>
+    <div class="a-line"><b>${esc(o.product)} × ${o.qty}</b> · <b>${won(o.amount)}</b></div>
+    <div class="a-line muted">${esc(o.payMethod)}${o.depositor && o.depositor !== o.name ? ' · 입금자 ' + esc(o.depositor) : ''}</div>
+    ${o.note ? `<div class="a-note">요청: ${esc(o.note)}</div>` : ''}
+    ${o.memo ? `<div class="a-note memo">메모: ${esc(o.memo)}</div>` : ''}
+    ${reshipCount ? `<div class="a-note" style="background:var(--warn-soft);color:var(--warn)">재배송 신청 ${reshipCount}건</div>` : ''}
+    <div class="a-line muted">${esc(o.id)} · ${esc(o.createdAt)}${o.updatedAt ? ' · 수정 ' + esc(o.updatedAt) : ''}</div>
+    <div class="a-actions">
+      <button class="btn-line" data-act="copy">배송정보 복사</button>
+      <button class="btn-sub" data-act="edit">수정</button>
+    </div>
+  </article>`;
+}
+
+function reshipCard(x) {
+  const o = DATA.orders.find(v => v.id === x.orderId);
+  const photos = Array.isArray(x.photos) ? x.photos : String(x.photos || '').split('\n').filter(Boolean);
+  return `<article class="a-card ${x.status === '완료' ? '' : 'unpaid'}" data-rid="${esc(x.id)}">
+    <div class="a-head">
+      <div><div class="a-name">${esc(x.name)}</div>
+        <a class="a-phone" href="tel:${onlyDigits(x.phone)}">${esc(x.phone)}</a></div>
+      <span class="tag ${x.status === '완료' ? 'ok' : 'wait'}">${esc(x.type)}</span>
+    </div>
+    ${o ? `<div class="a-line">${esc(fullAddr(o))}</div><div class="a-line"><b>${esc(o.product)} × ${o.qty}</b></div>` : ''}
+    ${x.content ? `<div class="a-note">${esc(x.content)}</div>` : ''}
+    <div class="thumbs">${photos.map((p, i) => `<a href="${esc(p)}" target="_blank" rel="noopener">📷 사진 ${i + 1}</a>`).join('')}</div>
+    <div class="a-line muted">${esc(x.id)} · 주문 ${esc(x.orderId)} · ${esc(x.createdAt)}</div>
+    <div class="status-seg">${['접수', '처리중', '완료'].map(s => `<button data-status="${s}" class="${x.status === s ? 'on' : ''}">${s}</button>`).join('')}</div>
+    <div class="memo-row"><input placeholder="관리자 메모 (예: 10/21 재발송)" value="${esc(x.memo)}" data-memo><button class="btn-sub" data-act="rmemo">저장</button></div>
+  </article>`;
+}
+
+/* ---------- 동작 ---------- */
+$('#list').addEventListener('click', async e => {
+  const card = e.target.closest('.a-card'); if (!card) return;
+  const btn = e.target.closest('button');
+
+  if (card.dataset.id) {
+    const o = DATA.orders.find(v => v.id === card.dataset.id);
+    const act = btn && btn.dataset.act;
+    if (act === 'pay') {
+      withBusy(btn, () => updateOrder(o, { paid: !o.paid }, o.paid ? '미입금으로 바꿨어요' : '입금완료로 표시했어요'));
+    } else if (act === 'copy') {
+      copyText(`${o.name} / ${o.phone}\n${fullAddr(o)}\n${o.product} × ${o.qty}${o.note ? '\n요청: ' + o.note : ''}`, '배송정보를 복사했어요');
+    } else if (act === 'edit') {
+      openEdit(o);
+    }
+  }
+
+  if (card.dataset.rid) {
+    const x = DATA.reships.find(v => v.id === card.dataset.rid);
+    if (btn && btn.dataset.status && btn.dataset.status !== x.status) {
+      withBusy(btn, () => updateReship(x, { status: btn.dataset.status }));
+    }
+    if (btn && btn.dataset.act === 'rmemo') {
+      withBusy(btn, () => updateReship(x, { memo: $('[data-memo]', card).value.trim() }, '메모를 저장했어요'));
+    }
+  }
+});
+
+async function updateOrder(o, fields, msg = '저장했어요') {
+  try {
+    const r = await api('adminUpdateOrder', { password: PW, id: o.id, fields });
+    Object.assign(o, r.order);
+    render();
+    toast(msg);
+    return true;
+  } catch (err) { toast(err.message, 'error'); return false; }
+}
+async function updateReship(x, fields, msg = '저장했어요') {
+  try {
+    await api('adminUpdateReship', { password: PW, id: x.id, fields });
+    Object.assign(x, fields);
+    render();
+    toast(msg);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+/* ---------- 주문 수정 ---------- */
+function openEdit(o) {
+  const curProduct = (CONFIG.PRODUCTS.find(p => o.product === p.id || o.product === '키위 ' + p.label) || {}).id || '';
+  const body = openSheet('주문 수정 · ' + o.id, `
+    <form id="editForm" class="form-grid" novalidate>
+      <label class="field"><span>이름</span><input name="name" value="${esc(o.name)}"></label>
+      <label class="field"><span>연락처</span><input name="phone" type="tel" value="${esc(o.phone)}"></label>
+      <div class="field full"><span>주소</span>
+        <div class="addr-row"><input name="zip" value="${esc(o.zip)}" placeholder="우편번호"><button type="button" class="btn-sub" id="eFind">주소 찾기</button></div>
+        <input name="address" value="${esc(o.address)}" placeholder="주소">
+        <input name="addressDetail" value="${esc(o.addressDetail)}" placeholder="상세주소">
+        <div class="postcode-box" id="ePc" hidden style="height:400px;margin-top:8px"></div>
+      </div>
+      <label class="field"><span>상품</span><select name="product">
+        ${curProduct ? '' : `<option value="" selected>${esc(o.product)} (현재)</option>`}
+        ${CONFIG.PRODUCTS.map(p => `<option value="${p.id}" ${p.id === curProduct ? 'selected' : ''}>${p.label} · ${won(p.price)}</option>`).join('')}
+      </select></label>
+      <label class="field"><span>수량</span><input name="qty" type="number" min="1" max="${CONFIG.MAX_QTY}" value="${o.qty}"></label>
+      <label class="field"><span>결제방법</span><select name="payMethod">
+        ${['카카오페이', '계좌이체'].map(m => `<option ${o.payMethod === m ? 'selected' : ''}>${m}</option>`).join('')}
+      </select></label>
+      <label class="field"><span>입금자명</span><input name="depositor" value="${esc(o.depositor)}"></label>
+      <label class="field full"><span>배송 요청사항</span><input name="note" value="${esc(o.note)}"></label>
+      <label class="field full"><span>관리자 메모 <em>(고객에게 보이지 않아요)</em></span><textarea name="memo" rows="2">${esc(o.memo)}</textarea></label>
+      <label class="check full" style="margin-bottom:14px"><input type="checkbox" name="paid" ${o.paid ? 'checked' : ''}><span>입금 확인됨</span></label>
+      <div class="full" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span class="muted">결제금액</span><b id="eAmount" style="font-size:19px">${won(o.amount)}</b></div>
+      <button class="btn-primary block full" type="submit" id="eSave">저장하기</button>
+    </form>`);
+  const f = $('#editForm', body);
+  bindPhoneInput(f.phone);
+
+  const calc = () => {
+    const p = CONFIG.PRODUCTS.find(v => v.id === f.product.value);
+    $('#eAmount', body).textContent = p ? won(p.price * (parseInt(f.qty.value, 10) || 0)) : won(o.amount);
+  };
+  f.product.onchange = calc; f.qty.oninput = calc;
+
+  $('#eFind', body).onclick = () => {
+    if (!window.daum || !daum.Postcode) return toast('주소 검색을 불러오지 못했어요. 직접 입력해주세요', 'error');
+    const pc = $('#ePc', body); pc.hidden = false;
+    new daum.Postcode({
+      width: '100%', height: '100%',
+      oncomplete(d) {
+        f.zip.value = d.zonecode; f.address.value = d.roadAddress || d.jibunAddress;
+        pc.hidden = true; pc.innerHTML = ''; f.addressDetail.focus();
+      },
+    }).embed(pc);
+  };
+
+  f.addEventListener('submit', e => {
+    e.preventDefault();
+    const next = {
+      name: f.name.value.trim(), phone: f.phone.value.trim(), zip: f.zip.value.trim(),
+      address: f.address.value.trim(), addressDetail: f.addressDetail.value.trim(),
+      payMethod: f.payMethod.value, depositor: f.depositor.value.trim(),
+      note: f.note.value.trim(), memo: f.memo.value.trim(), paid: f.paid.checked,
+    };
+    if (!next.name) return toast('이름은 비워둘 수 없어요', 'error');
+    const qty = parseInt(f.qty.value, 10);
+    if (!(qty >= 1 && qty <= CONFIG.MAX_QTY)) return toast(`수량은 1~${CONFIG.MAX_QTY}개까지 가능해요`, 'error');
+    // 바뀐 항목만 보내기 (상품·수량을 안 바꾸면 금액도 그대로)
+    const fields = {};
+    Object.keys(next).forEach(k => { if (next[k] !== (o[k] ?? (k === 'paid' ? false : ''))) fields[k] = next[k]; });
+    if (f.product.value && f.product.value !== curProduct) fields.product = f.product.value;
+    if (qty !== Number(o.qty)) { fields.qty = qty; if (!fields.product && curProduct) fields.product = curProduct; }
+    if (!Object.keys(fields).length) { closeSheet(); return; }
+    withBusy($('#eSave', body), async () => {
+      if (await updateOrder(o, fields, '주문 정보를 수정했어요')) closeSheet();
+    });
+  });
+}
+</script>
+</body>
+</html>

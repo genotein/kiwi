@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>못난이 키위 주문</title>
+<meta name="description" content="산지직송 파치(못난이) 키위 주문 – 5kg 30,000원 / 10kg 55,000원, 택배비 포함">
+<meta name="theme-color" content="#f6f6f1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥝</text></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">🥝</div>
+      <div><h1 id="shopName">못난이 키위</h1><p id="subtitle"></p></div>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-tab="order" role="tab">주문하기</button>
+    <button class="tab" data-tab="lookup" role="tab">주문조회 · 재배송</button>
+  </nav>
+
+  <!-- ───────── 주문하기 ───────── -->
+  <section id="tab-order">
+    <form id="orderForm" novalidate>
+      <div class="notice">
+        <strong>🥝 파치(못난이) 키위예요</strong>
+        <p id="noticeText"></p>
+      </div>
+
+      <div class="card">
+        <h2><span class="num">1</span>상품 선택</h2>
+        <div class="options" id="productList"></div>
+        <div class="qty-row">
+          <span>수량</span>
+          <div class="stepper">
+            <button type="button" id="qtyMinus" aria-label="수량 줄이기">−</button>
+            <output id="qty">1</output>
+            <button type="button" id="qtyPlus" aria-label="수량 늘리기">+</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="num">2</span>받는 분 정보</h2>
+        <label class="field"><span>이름</span>
+          <input id="name" autocomplete="name" placeholder="홍길동" maxlength="30"></label>
+        <label class="field"><span>연락처</span>
+          <input id="phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="010-0000-0000"></label>
+        <div class="field"><span>주소</span>
+          <div class="addr-row">
+            <input id="zip" readonly placeholder="우편번호" aria-label="우편번호">
+            <button type="button" class="btn-sub" id="findAddr">주소 찾기</button>
+          </div>
+          <input id="address" readonly placeholder="주소 찾기를 눌러주세요" aria-label="주소">
+          <input id="addressDetail" placeholder="상세주소 (동·호수)" maxlength="100" aria-label="상세주소">
+        </div>
+        <label class="field"><span>배송 요청사항 <em>(선택)</em></span>
+          <input id="note" placeholder="예) 부재 시 문 앞에 놓아주세요" maxlength="100"></label>
+      </div>
+
+      <div class="card">
+        <h2><span class="num">3</span>결제 방법</h2>
+        <div class="options two">
+          <label class="opt pay"><input type="radio" name="pay" value="카카오페이" checked>
+            <span class="opt-body"><b>카카오페이</b><small>송금 링크로 바로</small></span></label>
+          <label class="opt pay"><input type="radio" name="pay" value="계좌이체">
+            <span class="opt-body"><b>계좌이체</b><small>무통장 입금</small></span></label>
+        </div>
+        <label class="field" id="depositorField" style="margin-top:14px" hidden><span>입금자명 <em>(주문자와 다를 때만)</em></span>
+          <input id="depositor" maxlength="30" placeholder="비워두면 주문자 이름으로 확인해요"></label>
+      </div>
+
+      <div class="card">
+        <label class="check"><input type="checkbox" id="agreeShape">
+          <span>크기·모양이 고르지 않은 <b>파치 상품</b>임을 확인했어요</span></label>
+        <label class="check"><input type="checkbox" id="agreePrivacy">
+          <span>배송을 위한 개인정보 수집·이용에 동의해요 <button type="button" class="link" id="privacyMore">자세히</button></span></label>
+        <p class="privacy-detail" id="privacyDetail" hidden>
+          수집 항목: 이름, 연락처, 주소 · 이용 목적: 상품 배송 및 주문 확인 · 보관 기간: 배송 완료 후 6개월 뒤 파기.
+          동의하지 않을 수 있지만, 이 경우 주문이 어려워요.
+        </p>
+      </div>
+      <div class="spacer"></div>
+
+      <div class="bottom-bar" id="bottomBar">
+        <div class="inner">
+          <div class="total"><small>총 결제금액 · 택배비 포함</small><b id="totalPrice">0원</b></div>
+          <button type="submit" class="btn-primary" id="submitBtn">주문하기</button>
+        </div>
+      </div>
+    </form>
+
+    <div id="doneView" hidden></div>
+  </section>
+
+  <!-- ───────── 주문조회 · 재배송 ───────── -->
+  <section id="tab-lookup" hidden>
+    <div class="card">
+      <h2>내 주문 찾기</h2>
+      <p class="muted small" style="margin:-6px 0 14px">주문할 때 입력한 이름과 연락처로 조회할 수 있어요. 받은 키위에 문제가 있으면 여기서 사진과 함께 재배송을 신청해주세요.</p>
+      <form id="lookupForm" novalidate>
+        <label class="field"><span>이름</span><input id="lName" autocomplete="name" placeholder="홍길동"></label>
+        <label class="field"><span>연락처</span><input id="lPhone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="010-0000-0000"></label>
+        <button class="btn-primary block" type="submit" id="lookupBtn">조회하기</button>
+      </form>
+    </div>
+    <div id="lookupResult"></div>
+  </section>
+</div>
+
+<footer>문의 <a id="contact" href="#"></a></footer>
+
+<script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script>
+/* ---------- 초기 화면 ---------- */
+showDemoBanner();
+$('#shopName').textContent = CONFIG.SHOP_NAME;
+$('#subtitle').textContent = CONFIG.SUBTITLE || '';
+$('#noticeText').textContent = CONFIG.NOTICE;
+document.title = CONFIG.SHOP_NAME + ' 주문';
+$('#contact').textContent = CONFIG.CONTACT;
+$('#contact').href = 'tel:' + onlyDigits(CONFIG.CONTACT);
+
+const state = { product: CONFIG.PRODUCTS[0].id, qty: 1 };
+
+$('#productList').innerHTML = CONFIG.PRODUCTS.map((p, i) => `
+  <label class="opt">
+    <input type="radio" name="product" value="${esc(p.id)}" ${i === 0 ? 'checked' : ''}>
+    <span class="opt-body">
+      <span class="opt-row">
+        <span class="opt-title">${esc(p.label)}${p.badge ? `<em class="badge">${esc(p.badge)}</em>` : ''}</span>
+        <span class="opt-price">${won(p.price)}</span>
+      </span>
+      <span class="opt-sub"><span>택배비 포함</span>${p.kg ? `<span>1kg당 ${won(Math.round(p.price / p.kg))}</span>` : ''}</span>
+    </span>
+  </label>`).join('');
+
+function updateTotal() {
+  const p = CONFIG.PRODUCTS.find(x => x.id === state.product);
+  $('#qty').textContent = state.qty;
+  $('#qtyMinus').disabled = state.qty <= 1;
+  $('#qtyPlus').disabled = state.qty >= CONFIG.MAX_QTY;
+  $('#totalPrice').textContent = won(p.price * state.qty);
+}
+$('#productList').addEventListener('change', e => { state.product = e.target.value; updateTotal(); });
+$('#qtyMinus').onclick = () => { state.qty = Math.max(1, state.qty - 1); updateTotal(); };
+$('#qtyPlus').onclick = () => { state.qty = Math.min(CONFIG.MAX_QTY, state.qty + 1); updateTotal(); };
+updateTotal();
+
+bindPhoneInput($('#phone'));
+bindPhoneInput($('#lPhone'));
+$('#privacyMore').onclick = () => { $('#privacyDetail').hidden = !$('#privacyDetail').hidden; };
+document.getElementsByName('pay').forEach(r => r.addEventListener('change', () => {
+  $('#depositorField').hidden = payMethod() !== '계좌이체';
+}));
+const payMethod = () => document.querySelector('input[name=pay]:checked').value;
+
+/* ---------- 탭 ---------- */
+function showTab(name) {
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  $('#tab-order').hidden = name !== 'order';
+  $('#tab-lookup').hidden = name !== 'lookup';
+  history.replaceState(null, '', name === 'lookup' ? '#lookup' : location.pathname + location.search);
+  window.scrollTo({ top: 0 });
+}
+$$('.tab').forEach(t => t.onclick = () => showTab(t.dataset.tab));
+if (location.hash === '#lookup') showTab('lookup');
+
+/* ---------- 주소 찾기 (카카오 우편번호 서비스) ---------- */
+$('#findAddr').onclick = openPostcode;
+$('#address').addEventListener('click', () => { if ($('#address').readOnly) openPostcode(); });
+function openPostcode() {
+  if (!window.daum || !daum.Postcode) {
+    // 우편번호 서비스를 못 불러오면 직접 입력
+    ['#zip', '#address'].forEach(s => { $(s).readOnly = false; });
+    $('#address').placeholder = '주소를 직접 입력해주세요';
+    $('#address').focus();
+    return;
+  }
+  const body = openSheet('주소 찾기', '<div class="postcode-box" id="pcBox"></div>');
+  new daum.Postcode({
+    width: '100%', height: '100%',
+    oncomplete(d) {
+      let addr = d.roadAddress || d.jibunAddress;
+      const extra = [d.bname && /[동|로|가]$/g.test(d.bname) ? d.bname : '', d.buildingName && d.apartment === 'Y' ? d.buildingName : '']
+        .filter(Boolean).join(', ');
+      if (d.roadAddress && extra) addr += ` (${extra})`;
+      $('#zip').value = d.zonecode;
+      $('#address').value = addr;
+      $('#address').classList.remove('invalid');
+      closeSheet();
+      $('#addressDetail').focus();
+    },
+  }).embed($('#pcBox', body));
+}
+
+/* ---------- 주문 ---------- */
+function invalid(sel, msg) {
+  const el = $(sel);
+  el.classList.add('invalid');
+  el.addEventListener('input', () => el.classList.remove('invalid'), { once: true });
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(() => el.focus({ preventScroll: true }), 300);
+  toast(msg, 'error');
+}
+
+$('#orderForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const name = $('#name').value.trim();
+  const phone = $('#phone').value;
+  if (!name) return invalid('#name', '받는 분 이름을 입력해주세요');
+  if (onlyDigits(phone).length < 10) return invalid('#phone', '연락처를 정확히 입력해주세요');
+  if (!$('#address').value.trim()) return invalid('#address', '주소 찾기로 주소를 입력해주세요');
+  if (!$('#addressDetail').value.trim() && !confirm('상세주소(동·호수) 없이 주문할까요?')) return $('#addressDetail').focus();
+  if (!$('#agreeShape').checked) return invalid('#agreeShape', '파치 상품 안내를 확인해주세요');
+  if (!$('#agreePrivacy').checked) return invalid('#agreePrivacy', '개인정보 수집·이용에 동의해주세요');
+
+  withBusy($('#submitBtn'), async () => {
+    try {
+      const r = await api('createOrder', {
+        product: state.product, qty: state.qty, name, phone,
+        zip: $('#zip').value, address: $('#address').value.trim(),
+        addressDetail: $('#addressDetail').value.trim(), note: $('#note').value.trim(),
+        payMethod: payMethod(), depositor: $('#depositor').value.trim(),
+      });
+      showDone(r.order);
+    } catch (err) { toast(err.message, 'error'); }
+  });
+});
+
+function kakaoBox(o) {
+  return `<div class="pay-box kakao">
+    <h3>카카오페이로 송금하기</h3>
+    <a class="btn-kakao" href="${esc(CONFIG.KAKAOPAY_LINK)}" target="_blank" rel="noopener">💛 ${won(o.amount)} 송금하러 가기</a>
+    <div class="acct"><div><small>보낼 금액</small><b>${won(o.amount)}</b></div>
+      <button type="button" class="btn-sub" data-copy="${o.amount}" data-copy-msg="금액을 복사했어요">복사</button></div>
+    <ul>
+      <li>송금 화면에서 금액을 직접 입력해주세요.</li>
+      <li>카카오톡 이름이 주문자(${esc(o.depositor)})와 다르면 송금 메시지에 주문번호를 적어주세요.</li>
+    </ul>
+  </div>`;
+}
+function bankBox(o) {
+  const b = CONFIG.BANK;
+  return `<div class="pay-box bank">
+    <h3>계좌이체로 입금하기</h3>
+    <div class="acct"><div><small>${esc(b.name)} · 예금주 ${esc(b.holder)}</small><b>${esc(b.account)}</b></div>
+      <button type="button" class="btn-sub" data-copy="${esc(b.name + ' ' + b.account)}" data-copy-msg="계좌번호를 복사했어요">복사</button></div>
+    <div class="acct"><div><small>입금할 금액</small><b>${won(o.amount)}</b></div>
+      <button type="button" class="btn-sub" data-copy="${o.amount}" data-copy-msg="금액을 복사했어요">복사</button></div>
+    <ul><li>입금자명 <b>${esc(o.depositor)}</b>(으)로 보내주세요.</li></ul>
+  </div>`;
+}
+function payBlocks(o) {
+  const kakaoFirst = o.payMethod !== '계좌이체';
+  return (kakaoFirst ? kakaoBox(o) : bankBox(o)) +
+    `<details class="other"><summary>${kakaoFirst ? '계좌이체' : '카카오페이'}로 결제할래요</summary>${kakaoFirst ? bankBox(o) : kakaoBox(o)}</details>`;
+}
+
+function showDone(o) {
+  $('#orderForm').hidden = true;
+  const v = $('#doneView');
+  v.hidden = false;
+  v.innerHTML = `
+    <div class="card done-head">
+      <div class="done-icon">🥝</div>
+      <h2>주문이 접수됐어요</h2>
+      <p>아래 방법으로 결제해주시면, 입금 확인 후 순서대로 보내드려요.</p>
+    </div>
+    <div class="card">
+      <dl class="summary">
+        <dt>주문번호</dt><dd>${esc(o.id)}</dd>
+        <dt>상품</dt><dd>${esc(o.product)} × ${o.qty}</dd>
+        <dt>결제금액</dt><dd class="big">${won(o.amount)}</dd>
+      </dl>
+    </div>
+    <div class="card">${payBlocks(o)}</div>
+    <p class="muted small" style="text-align:center;margin:4px 12px 14px">결제 정보는 언제든 <b>주문조회</b> 탭에서 다시 볼 수 있어요.</p>
+    <button type="button" class="btn-line block" id="newOrder" style="margin-bottom:20px">새 주문하기</button>`;
+  $('#newOrder').onclick = () => {
+    $('#orderForm').reset(); state.product = CONFIG.PRODUCTS[0].id; state.qty = 1; updateTotal();
+    $('#depositorField').hidden = true;
+    v.hidden = true; $('#orderForm').hidden = false; window.scrollTo({ top: 0 });
+  };
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ---------- 주문 조회 ---------- */
+let who = null;          // 조회한 사람 (재배송 신청 시 본인 확인용)
+let lastOrders = [];
+
+$('#lookupForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const name = $('#lName').value.trim(), phone = $('#lPhone').value;
+  if (!name) return invalid('#lName', '이름을 입력해주세요');
+  if (onlyDigits(phone).length < 10) return invalid('#lPhone', '연락처를 정확히 입력해주세요');
+  withBusy($('#lookupBtn'), () => doLookup(name, phone));
+});
+
+async function doLookup(name, phone) {
+  try {
+    const r = await api('lookup', { name, phone });
+    who = { name, phone };
+    lastOrders = r.orders;
+    renderOrders();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function renderOrders() {
+  const box = $('#lookupResult');
+  if (!lastOrders.length) {
+    box.innerHTML = `<div class="card empty">주문 내역이 없어요.<br><span class="small">주문할 때 입력한 이름·연락처가 맞는지 확인해주세요.</span></div>`;
+    return;
+  }
+  box.innerHTML = `<p class="muted small" style="margin:4px 4px 10px">주문 ${lastOrders.length}건</p>` +
+    lastOrders.map((o, i) => `
+    <div class="card order-item">
+      <div class="row">
+        <div><h3>${esc(o.product)} × ${o.qty}</h3>
+          <div class="meta">${esc(o.createdAt)} · ${esc(o.id)}</div>
+          <div class="meta">${esc(o.address)}</div></div>
+        <span class="tag ${o.paid ? 'ok' : 'wait'}">${o.paid ? '입금확인' : '입금 대기'}</span>
+      </div>
+      <div class="meta" style="margin-top:8px;color:var(--text)"><b>${won(o.amount)}</b> · ${esc(o.payMethod)}</div>
+      ${(o.reships || []).map(x => `
+        <div class="reship-line"><span>재배송 신청 · ${esc(x.type)}<br><span class="muted small">${esc(x.createdAt)}</span></span>
+        <span class="tag ${x.status === '완료' ? 'ok' : 'gray'}">${esc(x.status)}</span></div>`).join('')}
+      <div class="actions">
+        ${o.paid ? '' : `<button type="button" class="btn-line" data-pay="${i}">결제 정보 보기</button>`}
+        <button type="button" class="btn-sub" data-reship="${i}">문제가 있어요 · 재배송</button>
+      </div>
+    </div>`).join('');
+}
+
+$('#lookupResult').addEventListener('click', e => {
+  const p = e.target.closest('[data-pay]');
+  if (p) {
+    const o = lastOrders[p.dataset.pay];
+    openSheet('결제 정보', `<dl class="summary" style="margin-bottom:14px"><dt>주문번호</dt><dd>${esc(o.id)}</dd><dt>결제금액</dt><dd class="big">${won(o.amount)}</dd></dl>${payBlocks(o)}`);
+  }
+  const r = e.target.closest('[data-reship]');
+  if (r) openReship(lastOrders[r.dataset.reship]);
+});
+
+/* ---------- 재배송 신청 ---------- */
+const TYPES = ['무름·상함', '파손·눌림', '수량 부족', '기타'];
+function openReship(o) {
+  let photos = [];
+  const body = openSheet('재배송 신청', `
+    <p class="muted small" style="margin:0 0 14px">${esc(o.product)} × ${o.qty} · 주문번호 ${esc(o.id)}</p>
+    <div class="field"><span>어떤 문제인가요?</span>
+      <div class="chips">${TYPES.map((t, i) => `<label class="chip"><input type="radio" name="rtype" value="${t}" ${i === 0 ? 'checked' : ''}><span>${t}</span></label>`).join('')}</div></div>
+    <div class="field"><span>사진 <em>(최대 3장, 상자와 키위 상태가 보이게)</em></span>
+      <div class="photos" id="photoGrid"></div></div>
+    <label class="field"><span>내용 <em>(선택)</em></span>
+      <textarea id="rContent" maxlength="1000" placeholder="예) 상자를 열어보니 5개 정도가 물러져 있었어요"></textarea></label>
+    <button type="button" class="btn-primary block" id="rSubmit">재배송 신청하기</button>
+    <p class="muted small" style="text-align:center;margin:10px 0 0">확인 후 연락드릴게요. 파치 특성상 크기·모양 차이는 재배송 대상이 아니에요.</p>`);
+
+  function drawPhotos() {
+    $('#photoGrid', body).innerHTML = photos.map((src, i) =>
+      `<div class="photo"><img src="${src}" alt="첨부 사진 ${i + 1}"><button type="button" data-del="${i}" aria-label="사진 삭제">✕</button></div>`).join('') +
+      (photos.length < 3 ? `<label class="photo-add"><span><b>+</b>사진 추가</span><input type="file" accept="image/*" multiple></label>` : '');
+  }
+  drawPhotos();
+  body.addEventListener('change', async e => {
+    if (e.target.type !== 'file') return;
+    const files = [...e.target.files].slice(0, 3 - photos.length);
+    for (const f of files) {
+      try { photos.push(await resizeImage(f)); } catch (err) { toast(err.message, 'error'); }
+    }
+    drawPhotos();
+  });
+  body.addEventListener('click', e => {
+    const d = e.target.closest('[data-del]');
+    if (d) { photos.splice(+d.dataset.del, 1); drawPhotos(); }
+  });
+  $('#rSubmit', body).onclick = e => {
+    if (!photos.length) return toast('사진을 1장 이상 첨부해주세요', 'error');
+    withBusy(e.currentTarget, async () => {
+      try {
+        await api('reship', {
+          orderId: o.id, name: who.name, phone: who.phone,
+          type: $('input[name=rtype]:checked', body).value,
+          content: $('#rContent', body).value.trim(), photos,
+        });
+        closeSheet();
+        toast('재배송 신청이 접수됐어요');
+        doLookup(who.name, who.phone);
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  };
+}
+</script>
+</body>
+</html>
