@@ -12,7 +12,7 @@ const CONFIG = {
 
   // 상품 (가격을 바꾸면 apps-script/Code.gs 의 PRODUCTS 도 같이 바꿔주세요)
   PRODUCTS: [
-    { id: '5kg',  label: '5kg',  kg: 5,  price: 30000 },
+    { id: '5kg',  label: '5kg',  kg: 5,  price: 35000 },
     { id: '10kg', label: '10kg', kg: 10, price: 55000, badge: '더 알뜰해요' },
   ],
   MAX_QTY: 10,
