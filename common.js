@@ -70,6 +70,35 @@ document.addEventListener('click', e => {
   if (b) copyText(b.dataset.copy, b.dataset.copyMsg || '복사했어요');
 });
 
+/* 날짜 (항상 한국 시간 기준, 'YYYY-MM-DD') */
+function kstToday() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+}
+function addDays(ymd, n) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+/* 배송일 기본값: 다음날 (CONFIG.SHIP_SKIP_WEEKDAYS 에 있는 요일은 건너뜀) */
+function nextShipDate(from = kstToday()) {
+  const skip = CONFIG.SHIP_SKIP_WEEKDAYS || [];
+  let d = addDays(from, 1);
+  for (let i = 0; i < 7 && skip.includes(weekday(d)); i++) d = addDays(d, 1);
+  return d;
+}
+function weekday(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+function fmtMD(ymd, withDay = true) {
+  if (!ymd) return '';
+  const [, m, d] = ymd.split('-').map(Number);
+  return `${m}/${d}` + (withDay ? `(${'일월화수목금토'[weekday(ymd)]})` : '');
+}
+function relDay(ymd) {
+  const t = kstToday();
+  return ymd === t ? '오늘' : ymd === addDays(t, 1) ? '내일' : ymd === addDays(t, -1) ? '어제' : '';
+}
+
 /* 버튼 로딩 상태 */
 async function withBusy(btn, fn) {
   if (btn.disabled) return;
@@ -179,12 +208,24 @@ function demoApi(action, r) {
   if (action === 'adminUpdateOrder') {
     const o = db.orders.find(x => x.id === r.id);
     if (!o) return fail('주문을 찾을 수 없어요.');
+    if ('shipDate' in r.fields && r.fields.shipDate !== o.shipDate) o.shipped = false;
     Object.assign(o, r.fields);
     if (r.fields.phone) o.phone = formatPhone(o.phone);
     const p = prod(o.product);
     if (p) { o.product = '키위 ' + p.label; o.qty = +o.qty; o.amount = p.price * o.qty; }
     o.updatedAt = now(); save();
     return wait({ ok: true, order: o });
+  }
+  if (action === 'adminBulkShip') {
+    const f = r.fields || {};
+    const updated = db.orders.filter(o => r.ids.includes(o.id)).map(o => {
+      if ('shipDate' in f) { if (f.shipDate !== o.shipDate) o.shipped = false; o.shipDate = f.shipDate; }
+      if ('shipped' in f) o.shipped = !!f.shipped && !!o.shipDate;
+      o.updatedAt = now();
+      return o;
+    });
+    save();
+    return wait({ ok: true, orders: updated });
   }
   if (action === 'adminUpdateReship') {
     const x = db.reships.find(v => v.id === r.id);

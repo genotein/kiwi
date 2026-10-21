@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>못난이 키위 주문</title>
-<meta name="description" content="산지직송 파치(못난이) 키위 주문 – 5kg 30,000원 / 10kg 55,000원, 택배비 포함">
+<meta name="description" content="산지직송 파치(못난이) 키위 주문 – 5kg 35,000원 / 10kg 55,000원, 택배비 포함">
 <meta name="theme-color" content="#f6f6f1">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥝</text></svg>">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
@@ -329,6 +329,7 @@ function renderOrders() {
         <span class="tag ${o.paid ? 'ok' : 'wait'}">${o.paid ? '입금확인' : '입금 대기'}</span>
       </div>
       <div class="meta" style="margin-top:8px;color:var(--text)"><b>${won(o.amount)}</b> · ${esc(o.payMethod)}</div>
+      ${o.shipDate ? `<div class="reship-line" style="background:var(--green-soft)"><span>📦 ${o.shipped ? `${fmtMD(o.shipDate)} 발송했어요` : `${fmtMD(o.shipDate)} 발송 예정이에요`}</span></div>` : ''}
       ${(o.reships || []).map(x => `
         <div class="reship-line"><span>재배송 신청 · ${esc(x.type)}<br><span class="muted small">${esc(x.createdAt)}</span></span>
         <span class="tag ${x.status === '완료' ? 'ok' : 'gray'}">${esc(x.status)}</span></div>`).join('')}

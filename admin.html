@@ -40,6 +40,7 @@
     <div class="toolbar">
       <div class="seg" id="viewSeg">
         <button data-v="orders" class="on">주문</button>
+        <button data-v="delivery">배송목록</button>
         <button data-v="reships">재배송 신청</button>
       </div>
       <div class="seg" id="filterSeg"></div>
@@ -47,6 +48,20 @@
     </div>
 
     <div class="grid" id="list"></div>
+    <div id="delivery" hidden></div>
+  </div>
+</div>
+
+<!-- 배송목록: 선택했을 때 나오는 아래 버튼 -->
+<div class="action-bar" id="actionBar" hidden>
+  <div class="inner">
+    <b id="selCount"></b>
+    <div class="ab-btns">
+      <button class="btn-line" data-bulk="date">날짜 변경</button>
+      <button class="btn-line" data-bulk="shipped" id="abShipped">발송완료</button>
+      <button class="btn-line danger" data-bulk="delete">삭제</button>
+      <button class="icon-btn" data-bulk="clear" aria-label="선택 해제">✕</button>
+    </div>
   </div>
 </div>
 
@@ -58,11 +73,22 @@ showDemoBanner();
 let PW = sessionStorage.getItem('kiwi_admin_pw') || '';
 let DATA = { orders: [], reships: [] };
 let view = 'orders', filter = 'all', query = '';
+let shipDay = null;            // 배송목록에서 보고 있는 날짜
+const sel = new Set();         // 배송목록에서 선택한 주문번호
 
 const FILTERS = {
-  orders: [['all', '전체'], ['unpaid', '미입금'], ['paid', '입금완료']],
+  orders: [['all', '전체'], ['unpaid', '미입금'], ['toship', '배송 대기'], ['shipping', '배송 등록']],
   reships: [['open', '처리 전'], ['all', '전체'], ['done', '완료']],
 };
+
+// 주소창 #delivery=2026-10-22 로 새로고침해도 배송목록 유지
+(function readHash() {
+  const m = location.hash.match(/^#(orders|delivery|reships)(?:=(\d{4}-\d{2}-\d{2}))?/);
+  if (m) { view = m[1]; filter = view === 'reships' ? 'open' : 'all'; if (m[2]) shipDay = m[2]; }
+})();
+function writeHash() {
+  history.replaceState(null, '', '#' + view + (view === 'delivery' && shipDay ? '=' + shipDay : ''));
+}
 
 /* ---------- 로그인 ---------- */
 $('#demoHint').hidden = !DEMO;
@@ -92,34 +118,58 @@ async function load(fromLogin) {
 }
 if (PW) load(false); else $('#loginView').hidden = false;
 
-/* ---------- 화면 그리기 ---------- */
-$('#viewSeg').onclick = e => {
-  const b = e.target.closest('button'); if (!b) return;
-  view = b.dataset.v; filter = FILTERS[view][0][0];
+/* ---------- 상품 도우미 ---------- */
+const isProd = (o, p) => o.product === p.id || o.product === '키위 ' + p.label || o.product === p.label;
+const prodOf = o => CONFIG.PRODUCTS.find(p => isProd(o, p));
+const prodShort = o => (prodOf(o) || {}).label || String(o.product || '').replace(/^키위\s*/, '');
+const prodIndex = o => { const i = CONFIG.PRODUCTS.findIndex(p => isProd(o, p)); return i < 0 ? 99 : i; };
+const fullAddr = o => `${o.zip ? '(' + o.zip + ') ' : ''}${o.address} ${o.addressDetail || ''}`.trim();
+const toShip = o => o.paid && !o.shipDate;
+
+/* ---------- 화면 전환 ---------- */
+function go(v, f) {
+  view = v;
+  filter = f || FILTERS[v]?.[0][0] || 'all';
+  sel.clear();
+  writeHash();
   render();
-};
-$('#filterSeg').onclick = e => {
-  const b = e.target.closest('button'); if (!b) return;
-  filter = b.dataset.f; render();
+  window.scrollTo({ top: 0 });
+}
+$('#viewSeg').onclick = e => { const b = e.target.closest('button'); if (b) go(b.dataset.v); };
+$('#filterSeg').onclick = e => { const b = e.target.closest('button'); if (b) { filter = b.dataset.f; render(); } };
+$('#stats').onclick = e => {
+  const b = e.target.closest('[data-go]'); if (!b) return;
+  const [v, f] = b.dataset.go.split(':'); go(v, f);
 };
 $('#search').addEventListener('input', e => { query = e.target.value.trim(); renderList(); });
 
 function render() {
   const o = DATA.orders, r = DATA.reships;
-  const unpaid = o.filter(x => !x.paid);
+  const unpaid = o.filter(x => !x.paid).length;
+  const waiting = o.filter(toShip).length;
   const paidSum = o.filter(x => x.paid).reduce((s, x) => s + Number(x.amount || 0), 0);
   const openR = r.filter(x => x.status !== '완료').length;
   $('#stats').innerHTML = `
-    <div class="stat"><small>전체 주문</small><b>${o.length}건</b></div>
-    <div class="stat ${unpaid.length ? 'warn' : ''}"><small>입금 대기</small><b>${unpaid.length}건</b></div>
-    <div class="stat"><small>입금 확인 금액</small><b>${won(paidSum)}</b></div>
-    <div class="stat ${openR ? 'warn' : ''}"><small>재배송 처리 전</small><b>${openR}건</b></div>`;
+    <button class="stat" data-go="orders:all"><small>전체 주문</small><b>${o.length}건</b><em>입금 ${won(paidSum)}</em></button>
+    <button class="stat ${unpaid ? 'warn' : ''}" data-go="orders:unpaid"><small>입금 대기</small><b>${unpaid}건</b></button>
+    <button class="stat ${waiting ? 'warn' : ''}" data-go="orders:toship"><small>배송 대기 (입금완료)</small><b>${waiting}건</b></button>
+    <button class="stat ${openR ? 'warn' : ''}" data-go="reships:open"><small>재배송 처리 전</small><b>${openR}건</b></button>`;
   $$('#viewSeg button').forEach(b => {
     b.classList.toggle('on', b.dataset.v === view);
     if (b.dataset.v === 'reships') b.textContent = '재배송 신청' + (openR ? ` (${openR})` : '');
   });
-  $('#filterSeg').innerHTML = FILTERS[view].map(([k, l]) => `<button data-f="${k}" class="${k === filter ? 'on' : ''}">${l}</button>`).join('');
-  renderList();
+
+  const isDel = view === 'delivery';
+  $('#filterSeg').hidden = isDel;
+  $('#search').hidden = isDel;
+  $('#list').hidden = isDel;
+  $('#delivery').hidden = !isDel;
+  if (isDel) renderDelivery();
+  else {
+    $('#filterSeg').innerHTML = FILTERS[view].map(([k, l]) => `<button data-f="${k}" class="${k === filter ? 'on' : ''}">${l}</button>`).join('');
+    renderList();
+  }
+  renderActionBar();
 }
 
 function matches(obj) {
@@ -131,21 +181,41 @@ function matches(obj) {
   });
 }
 
+/* ==========================================================
+   주문 / 재배송 목록
+   ========================================================== */
 function renderList() {
   const box = $('#list');
   if (view === 'orders') {
-    const list = DATA.orders.filter(o =>
-      (filter === 'all' || (filter === 'paid' ? o.paid : !o.paid)) && matches(o));
-    box.innerHTML = list.length ? list.map(orderCard).join('') : `<div class="card empty">해당하는 주문이 없어요</div>`;
+    const test = {
+      all: () => true, unpaid: o => !o.paid, toship: toShip, shipping: o => !!o.shipDate,
+    }[filter] || (() => true);
+    const list = DATA.orders.filter(o => test(o) && matches(o));
+    let head = '';
+    if (filter === 'toship' && list.length) {
+      const d = nextShipDate();
+      head = `<div class="banner full"><span>입금 확인된 주문 <b>${list.length}건</b>이 배송을 기다리고 있어요.</span>
+        <button class="btn-primary sm" id="addAllShip">모두 ${fmtMD(d)} 배송 추가</button></div>`;
+    }
+    box.innerHTML = head + (list.length ? list.map(orderCard).join('') : `<div class="card empty full">해당하는 주문이 없어요</div>`);
+    const all = $('#addAllShip');
+    if (all) all.onclick = () => withBusy(all, () =>
+      bulkShip(list.map(o => o.id), { shipDate: nextShipDate() }, `${list.length}건을 ${fmtMD(nextShipDate())} 배송목록에 추가했어요`));
   } else {
     const list = DATA.reships.filter(x =>
       (filter === 'all' || (filter === 'done' ? x.status === '완료' : x.status !== '완료')) && matches(x));
-    box.innerHTML = list.length ? list.map(reshipCard).join('') : `<div class="card empty">해당하는 재배송 신청이 없어요</div>`;
+    box.innerHTML = list.length ? list.map(reshipCard).join('') : `<div class="card empty full">해당하는 재배송 신청이 없어요</div>`;
   }
 }
 
-function fullAddr(o) {
-  return `${o.zip ? '(' + o.zip + ') ' : ''}${o.address} ${o.addressDetail || ''}`.trim();
+function shipButton(o) {
+  if (o.shipDate) {
+    return `<button class="btn-ship ${o.shipped ? 'done' : ''}" data-act="goship" title="배송목록에서 보기">
+      📦 ${fmtMD(o.shipDate)} ${o.shipped ? '발송완료' : '배송'}</button>`;
+  }
+  return o.paid
+    ? `<button class="btn-primary sm" data-act="ship">배송 추가</button>`
+    : `<button class="btn-line" disabled title="입금 확인 후 누를 수 있어요">배송 추가 <small>(입금 후)</small></button>`;
 }
 
 function orderCard(o) {
@@ -164,7 +234,7 @@ function orderCard(o) {
     ${reshipCount ? `<div class="a-note" style="background:var(--warn-soft);color:var(--warn)">재배송 신청 ${reshipCount}건</div>` : ''}
     <div class="a-line muted">${esc(o.id)} · ${esc(o.createdAt)}${o.updatedAt ? ' · 수정 ' + esc(o.updatedAt) : ''}</div>
     <div class="a-actions">
-      <button class="btn-line" data-act="copy">배송정보 복사</button>
+      ${shipButton(o)}
       <button class="btn-sub" data-act="edit">수정</button>
     </div>
   </article>`;
@@ -188,7 +258,6 @@ function reshipCard(x) {
   </article>`;
 }
 
-/* ---------- 동작 ---------- */
 $('#list').addEventListener('click', async e => {
   const card = e.target.closest('.a-card'); if (!card) return;
   const btn = e.target.closest('button');
@@ -198,8 +267,11 @@ $('#list').addEventListener('click', async e => {
     const act = btn && btn.dataset.act;
     if (act === 'pay') {
       withBusy(btn, () => updateOrder(o, { paid: !o.paid }, o.paid ? '미입금으로 바꿨어요' : '입금완료로 표시했어요'));
-    } else if (act === 'copy') {
-      copyText(`${o.name} / ${o.phone}\n${fullAddr(o)}\n${o.product} × ${o.qty}${o.note ? '\n요청: ' + o.note : ''}`, '배송정보를 복사했어요');
+    } else if (act === 'ship') {
+      const d = nextShipDate();
+      withBusy(btn, () => updateOrder(o, { shipDate: d }, `${fmtMD(d)} 배송목록에 추가했어요`));
+    } else if (act === 'goship') {
+      shipDay = o.shipDate; go('delivery');
     } else if (act === 'edit') {
       openEdit(o);
     }
@@ -216,10 +288,248 @@ $('#list').addEventListener('click', async e => {
   }
 });
 
+/* ==========================================================
+   날짜별 배송목록
+   ========================================================== */
+function dayOrders(day) {
+  return DATA.orders.filter(o => o.shipDate === day)
+    .sort((a, b) => prodIndex(a) - prodIndex(b) || String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+function packCounts(list) {
+  const rows = CONFIG.PRODUCTS.map(p => ({ label: p.label, qty: 0 }));
+  list.forEach(o => {
+    const i = prodIndex(o);
+    if (i < 99) rows[i].qty += Number(o.qty) || 0;
+    else {
+      let r = rows.find(x => x.label === prodShort(o));
+      if (!r) rows.push(r = { label: prodShort(o), qty: 0 });
+      r.qty += Number(o.qty) || 0;
+    }
+  });
+  return rows;
+}
+function defaultShipDay() {
+  const t = kstToday();
+  const dates = [...new Set(DATA.orders.map(o => o.shipDate).filter(d => d && d >= t))].sort();
+  return dates[0] || nextShipDate();
+}
+function dayTitle(d) {
+  const [, m, dd] = d.split('-').map(Number);
+  return `${m}월 ${dd}일 (${'일월화수목금토'[weekday(d)]})`;
+}
+
+function renderDelivery() {
+  if (!shipDay) { shipDay = defaultShipDay(); writeHash(); }
+  const t = kstToday();
+  const day = shipDay;
+  const list = dayOrders(day);
+  // 화면에 없는 주문은 선택에서 빼기
+  [...sel].forEach(id => { if (!list.some(o => o.id === id)) sel.delete(id); });
+
+  const counts = packCounts(list);
+  const boxes = counts.reduce((s, c) => s + c.qty, 0);
+  const shippedN = list.filter(o => o.shipped).length;
+  const unshippedN = list.length - shippedN;
+  const overdue = DATA.orders.filter(o => o.shipDate && o.shipDate < t && !o.shipped);
+  const overdueDays = [...new Set(overdue.map(o => o.shipDate))].sort();
+
+  // 날짜 바로가기: 오늘 이후 배송일 + 미발송이 남은 지난 날짜 + 보고 있는 날짜
+  const dates = [...new Set(DATA.orders
+    .filter(o => o.shipDate && (o.shipDate >= t || !o.shipped)).map(o => o.shipDate).concat(day))].sort();
+  const chips = dates.map(d => {
+    const n = DATA.orders.filter(o => o.shipDate === d).length;
+    const late = d < t && DATA.orders.some(o => o.shipDate === d && !o.shipped);
+    return `<button class="day-chip ${d === day ? 'on' : ''} ${late ? 'late' : ''}" data-day="${d}">
+      ${relDay(d) ? `<i>${relDay(d)}</i>` : ''}${fmtMD(d)}<span>${n}건</span></button>`;
+  }).join('');
+
+  const isPast = day < t;
+  $('#delivery').innerHTML = `
+    <div class="day-nav">
+      <button class="icon-btn lg" data-move="-1" aria-label="이전 날짜">‹</button>
+      <div class="day-title"><b>${dayTitle(day)}</b>${relDay(day) ? `<span class="tag ${day === t ? 'ok' : 'gray'}">${relDay(day)}</span>` : ''}</div>
+      <button class="icon-btn lg" data-move="1" aria-label="다음 날짜">›</button>
+      <label class="btn-line sm date-pick">📅 날짜 선택<input type="date" id="dayPick" value="${day}"></label>
+    </div>
+    <div class="day-chips">${chips}</div>
+
+    ${overdue.length && !(overdueDays.length === 1 && overdueDays[0] === day) ? `
+      <div class="banner warn"><span>⚠️ 지난 배송일 중 <b>발송완료 표시가 안 된 주문 ${overdue.length}건</b>이 있어요. 누락된 건이면 다음 날짜로 옮겨주세요.</span>
+        <button class="btn-line sm" data-day="${overdueDays[0]}">${fmtMD(overdueDays[0])} 보기</button></div>` : ''}
+
+    <section class="pack">
+      <div class="pack-head">
+        <div><small>포장할 수량</small><b>${dayTitle(day)}</b></div>
+        <button class="btn-line sm" id="copyPack" ${list.length ? '' : 'disabled'}>생산자에게 보낼 내용 복사</button>
+      </div>
+      <div class="pack-grid">
+        ${counts.map(c => `<div class="pack-item ${c.qty ? '' : 'zero'}"><small>${esc(c.label)}</small><b>${c.qty}</b><span>상자</span></div>`).join('')}
+        <div class="pack-item total"><small>합계</small><b>${boxes}</b><span>상자 · ${list.length}건</span></div>
+      </div>
+      ${list.length ? `<div class="pack-foot">발송완료 <b>${shippedN}</b> / ${list.length}건${unshippedN && isPast ? ` · <span style="color:var(--warn)">미발송 ${unshippedN}건</span>` : ''}</div>` : ''}
+    </section>
+
+    <section class="card ship-list">
+      ${list.length ? `
+      <div class="ship-toolbar">
+        <label class="check"><input type="checkbox" id="selAll" ${sel.size === list.length ? 'checked' : ''}><span>전체 선택</span></label>
+        ${shippedN && unshippedN ? `<button class="link" id="selUnshipped">미발송만 선택</button>` : ''}
+        <span class="grow"></span>
+        <button class="btn-line sm" data-copy-list="text" id="copyText">📋 ${sel.size ? '선택' : '전체'} 복사</button>
+        <button class="btn-line sm" data-copy-list="tsv" title="엑셀·구글시트에 붙여넣기용">엑셀용 복사</button>
+      </div>
+      <div class="ship-rows">${list.map(shipRow).join('')}</div>
+      <p class="muted small" style="margin:14px 2px 0">택배를 보낸 뒤 <b>전체 선택 → 발송완료</b>를 눌러두면, 빠진 주문을 쉽게 찾아 다음 날로 옮길 수 있어요.</p>`
+      : `<div class="empty">이 날짜에 배송할 주문이 없어요.<br><span class="small">주문 탭에서 입금 확인 후 <b>배송 추가</b>를 눌러주세요.</span></div>`}
+    </section>
+    <div style="height:90px"></div>`;
+}
+
+function shipRow(o) {
+  return `<label class="ship-row ${sel.has(o.id) ? 'sel' : ''} ${o.shipped ? 'done' : ''}">
+    <input type="checkbox" data-sel="${esc(o.id)}" ${sel.has(o.id) ? 'checked' : ''}>
+    <div class="ship-main">
+      <div class="ship-top"><b>${esc(o.name)}</b><span class="qty-pill">${esc(prodShort(o))} × ${o.qty}</span>
+        ${o.shipped ? '<span class="tag ok">발송완료</span>' : ''}${o.paid ? '' : '<span class="tag wait">미입금</span>'}</div>
+      <div class="ship-phone">${esc(o.phone)}</div>
+      <div class="ship-addr">${esc(fullAddr(o))}</div>
+      ${o.note ? `<div class="ship-note">요청: ${esc(o.note)}</div>` : ''}
+    </div>
+  </label>`;
+}
+
+function setDay(d) {
+  if (!d) return;
+  shipDay = d; sel.clear(); writeHash(); render();
+}
+
+$('#delivery').addEventListener('click', e => {
+  const mv = e.target.closest('[data-move]');
+  if (mv) return setDay(addDays(shipDay, +mv.dataset.move));
+  const dy = e.target.closest('[data-day]');
+  if (dy) return setDay(dy.dataset.day);
+  if (e.target.closest('#copyPack')) return copyPack();
+  const cl = e.target.closest('[data-copy-list]');
+  if (cl) return copyList(cl.dataset.copyList);
+  if (e.target.closest('#selUnshipped')) {
+    sel.clear(); dayOrders(shipDay).filter(o => !o.shipped).forEach(o => sel.add(o.id));
+    return render();
+  }
+});
+$('#delivery').addEventListener('change', e => {
+  if (e.target.id === 'dayPick') return setDay(e.target.value);
+  if (e.target.id === 'selAll') {
+    sel.clear();
+    if (e.target.checked) dayOrders(shipDay).forEach(o => sel.add(o.id));
+    return render();
+  }
+  if (e.target.dataset.sel) {
+    e.target.checked ? sel.add(e.target.dataset.sel) : sel.delete(e.target.dataset.sel);
+    e.target.closest('.ship-row').classList.toggle('sel', e.target.checked);
+    const all = $('#selAll');
+    if (all) all.checked = sel.size === dayOrders(shipDay).length;
+    $('#copyText').textContent = `📋 ${sel.size ? '선택' : '전체'} 복사`;
+    renderActionBar();
+  }
+});
+
+/* 복사 */
+function copyPack() {
+  const list = dayOrders(shipDay);
+  const counts = packCounts(list);
+  const boxes = counts.reduce((s, c) => s + c.qty, 0);
+  copyText(`[${fmtMD(shipDay)} 키위 포장]\n` +
+    counts.map(c => `${c.label}: ${c.qty}상자`).join('\n') +
+    `\n총 ${boxes}상자 (${list.length}건)`, '포장 수량을 복사했어요');
+}
+function copyList(kind) {
+  const list = dayOrders(shipDay);
+  const picked = list.filter(o => sel.has(o.id));
+  const rows = picked.length ? picked : list;
+  if (!rows.length) return toast('복사할 배송이 없어요', 'error');
+  const clean = v => String(v ?? '').replace(/[\t\r\n]+/g, ' ').trim();
+  let text;
+  if (kind === 'tsv') {
+    text = ['받는분', '연락처', '우편번호', '주소', '상품', '수량', '배송요청사항'].join('\t') + '\n' +
+      rows.map(o => [o.name, o.phone, o.zip, `${o.address} ${o.addressDetail || ''}`, prodShort(o), o.qty, o.note]
+        .map(clean).join('\t')).join('\n');
+  } else {
+    text = `[${fmtMD(shipDay)} 배송 ${rows.length}건]\n\n` + rows.map((o, i) =>
+      `${i + 1}) ${clean(o.name)} · ${prodShort(o)}×${o.qty} · ${clean(o.phone)}\n${clean(fullAddr(o))}` +
+      (o.note ? `\n요청: ${clean(o.note)}` : '')).join('\n\n');
+  }
+  copyText(text, `${picked.length ? '선택' : '전체'} ${rows.length}건을 복사했어요${kind === 'tsv' ? ' (엑셀에 붙여넣기)' : ''}`);
+}
+
+/* 선택 작업 (날짜 변경 · 발송완료 · 삭제) */
+function renderActionBar() {
+  const bar = $('#actionBar');
+  const show = view === 'delivery' && sel.size > 0;
+  bar.hidden = !show;
+  document.body.classList.toggle('has-ab', show);
+  if (!show) return;
+  const picked = dayOrders(shipDay).filter(o => sel.has(o.id));
+  const allShipped = picked.length && picked.every(o => o.shipped);
+  $('#selCount').textContent = `${sel.size}건 선택`;
+  $('#abShipped').textContent = allShipped ? '발송 취소' : '발송완료';
+}
+$('#actionBar').addEventListener('click', e => {
+  const b = e.target.closest('[data-bulk]'); if (!b) return;
+  const ids = [...sel];
+  const act = b.dataset.bulk;
+  if (act === 'clear') { sel.clear(); return render(); }
+  if (act === 'date') return openDateSheet(ids);
+  if (act === 'shipped') {
+    const picked = DATA.orders.filter(o => sel.has(o.id));
+    const on = !picked.every(o => o.shipped);
+    return withBusy(b, () => bulkShip(ids, { shipped: on }, on ? `${ids.length}건을 발송완료로 표시했어요` : `${ids.length}건의 발송완료를 취소했어요`));
+  }
+  if (act === 'delete') {
+    if (!confirm(`선택한 ${ids.length}건을 배송목록에서 뺄까요?\n주문은 그대로 남고 '배송 대기'로 돌아가요.`)) return;
+    return withBusy(b, () => bulkShip(ids, { shipDate: '' }, `${ids.length}건을 배송목록에서 뺐어요`));
+  }
+});
+
+function openDateSheet(ids) {
+  const t = kstToday();
+  const quick = [['다음 날', addDays(shipDay, 1)], ['오늘', t], ['내일', addDays(t, 1)]]
+    .filter(([, d], i, a) => d !== shipDay && a.findIndex(x => x[1] === d) === i);
+  const body = openSheet(`배송일 변경 · ${ids.length}건`, `
+    <p class="muted" style="margin:0 0 12px">${dayTitle(shipDay)} → 옮길 날짜를 골라주세요</p>
+    <div class="chips" style="margin-bottom:14px">${quick.map(([l, d]) =>
+      `<button type="button" class="btn-line sm" data-q="${d}">${l} · ${fmtMD(d)}</button>`).join('')}</div>
+    <label class="field"><span>배송일</span><input type="date" id="newDay" value="${quick[0] ? quick[0][1] : addDays(shipDay, 1)}"></label>
+    <button class="btn-primary block" id="dateSave">옮기기</button>
+    <p class="muted small" style="margin:10px 0 0;text-align:center">옮긴 주문은 '발송완료' 표시가 해제돼요.</p>`);
+  body.addEventListener('click', e => {
+    const q = e.target.closest('[data-q]');
+    if (q) $('#newDay', body).value = q.dataset.q;
+  });
+  $('#dateSave', body).onclick = e => {
+    const d = $('#newDay', body).value;
+    if (!d) return toast('날짜를 골라주세요', 'error');
+    if (d === shipDay) return closeSheet();
+    withBusy(e.currentTarget, async () => {
+      if (await bulkShip(ids, { shipDate: d }, `${ids.length}건을 ${fmtMD(d)}로 옮겼어요`)) closeSheet();
+    });
+  };
+}
+
+/* ---------- 서버 저장 ---------- */
 async function updateOrder(o, fields, msg = '저장했어요') {
   try {
     const r = await api('adminUpdateOrder', { password: PW, id: o.id, fields });
     Object.assign(o, r.order);
+    render();
+    toast(msg);
+    return true;
+  } catch (err) { toast(err.message, 'error'); return false; }
+}
+async function bulkShip(ids, fields, msg) {
+  try {
+    const r = await api('adminBulkShip', { password: PW, ids, fields });
+    (r.orders || []).forEach(u => { const o = DATA.orders.find(x => x.id === u.id); if (o) Object.assign(o, u); });
+    sel.clear();
     render();
     toast(msg);
     return true;
@@ -236,7 +546,7 @@ async function updateReship(x, fields, msg = '저장했어요') {
 
 /* ---------- 주문 수정 ---------- */
 function openEdit(o) {
-  const curProduct = (CONFIG.PRODUCTS.find(p => o.product === p.id || o.product === '키위 ' + p.label) || {}).id || '';
+  const curProduct = (prodOf(o) || {}).id || '';
   const body = openSheet('주문 수정 · ' + o.id, `
     <form id="editForm" class="form-grid" novalidate>
       <label class="field"><span>이름</span><input name="name" value="${esc(o.name)}"></label>
@@ -256,6 +566,8 @@ function openEdit(o) {
         ${['카카오페이', '계좌이체'].map(m => `<option ${o.payMethod === m ? 'selected' : ''}>${m}</option>`).join('')}
       </select></label>
       <label class="field"><span>입금자명</span><input name="depositor" value="${esc(o.depositor)}"></label>
+      <label class="field"><span>배송일 <em>(비우면 배송 대기)</em></span><input name="shipDate" type="date" value="${esc(o.shipDate || '')}"></label>
+      <label class="check" style="align-self:end;margin-bottom:14px"><input type="checkbox" name="shipped" ${o.shipped ? 'checked' : ''}><span>발송완료</span></label>
       <label class="field full"><span>배송 요청사항</span><input name="note" value="${esc(o.note)}"></label>
       <label class="field full"><span>관리자 메모 <em>(고객에게 보이지 않아요)</em></span><textarea name="memo" rows="2">${esc(o.memo)}</textarea></label>
       <label class="check full" style="margin-bottom:14px"><input type="checkbox" name="paid" ${o.paid ? 'checked' : ''}><span>입금 확인됨</span></label>
@@ -271,6 +583,7 @@ function openEdit(o) {
     $('#eAmount', body).textContent = p ? won(p.price * (parseInt(f.qty.value, 10) || 0)) : won(o.amount);
   };
   f.product.onchange = calc; f.qty.oninput = calc;
+  f.shipDate.onchange = () => { if (!f.shipDate.value) f.shipped.checked = false; };
 
   $('#eFind', body).onclick = () => {
     if (!window.daum || !daum.Postcode) return toast('주소 검색을 불러오지 못했어요. 직접 입력해주세요', 'error');
@@ -291,13 +604,19 @@ function openEdit(o) {
       address: f.address.value.trim(), addressDetail: f.addressDetail.value.trim(),
       payMethod: f.payMethod.value, depositor: f.depositor.value.trim(),
       note: f.note.value.trim(), memo: f.memo.value.trim(), paid: f.paid.checked,
+      shipDate: f.shipDate.value, shipped: f.shipped.checked && !!f.shipDate.value,
     };
     if (!next.name) return toast('이름은 비워둘 수 없어요', 'error');
     const qty = parseInt(f.qty.value, 10);
     if (!(qty >= 1 && qty <= CONFIG.MAX_QTY)) return toast(`수량은 1~${CONFIG.MAX_QTY}개까지 가능해요`, 'error');
     // 바뀐 항목만 보내기 (상품·수량을 안 바꾸면 금액도 그대로)
     const fields = {};
-    Object.keys(next).forEach(k => { if (next[k] !== (o[k] ?? (k === 'paid' ? false : ''))) fields[k] = next[k]; });
+    Object.keys(next).forEach(k => {
+      const cur = ['paid', 'shipped'].includes(k) ? !!o[k] : (o[k] ?? '');
+      if (next[k] !== cur) fields[k] = next[k];
+    });
+    // 배송일을 바꾸면 서버가 발송완료를 풀기 때문에, 체크돼 있으면 같이 보내기
+    if ('shipDate' in fields && next.shipped) fields.shipped = true;
     if (f.product.value && f.product.value !== curProduct) fields.product = f.product.value;
     if (qty !== Number(o.qty)) { fields.qty = qty; if (!fields.product && curProduct) fields.product = curProduct; }
     if (!Object.keys(fields).length) { closeSheet(); return; }
