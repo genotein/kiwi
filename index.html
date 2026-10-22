@@ -110,9 +110,11 @@
       </form>
     </div>
 
-    <div class="spacer"></div>
+    
 
     <div id="lookupResult"></div>
+
+    <div class="spacer"></div>
   </section>
 
 
@@ -296,7 +298,8 @@ function showDone(o) {
     </div>
     <div class="card">${payBlocks(o)}</div>
     <p class="muted small" style="text-align:center;margin:4px 12px 14px">결제 정보는 언제든 <b>주문조회</b> 탭에서 다시 볼 수 있어요.</p>
-    <button type="button" class="btn-line block" id="newOrder" style="margin-bottom:20px">새 주문하기</button>`;
+    <button type="button" class="btn-line block" id="newOrder" style="margin-bottom:20px">새 주문하기</button>
+    <div class="spacer"></div>`;
   $('#newOrder').onclick = () => {
     $('#orderForm').reset(); state.product = CONFIG.PRODUCTS[0].id; state.qty = 1; updateTotal();
     $('#depositorField').hidden = true;
